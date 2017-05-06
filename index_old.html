@@ -1,0 +1,226 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+<style>
+  body {
+    padding: 100px;
+    width: 1200px;
+    margin: auto;
+    text-align: left;
+    font-weight: 300;
+    font-family: 'Open Sans', sans-serif;
+    color: #121212;
+  }
+  h1, h2, h3, h4 {
+    font-family: 'Source Sans Pro', sans-serif;
+  }
+  table {
+    border-spacing: 60px 0;
+  }
+</style>
+<title>CS 184 Final Project</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<link href="https://fonts.googleapis.com/css?family=Open+Sans|Source+Sans+Pro" rel="stylesheet">
+<script type="text/javascript" src="http://latex.codecogs.com/latexit.js"></script>
+</head>
+
+
+<body>
+
+<h1 align="middle">CS 184: Computer Graphics and Imaging, Spring 2017</h1>
+<h1 align="middle">Final Project: Water Simulation</h1>
+<h2 align="middle">Chris Correa, CS184-ado, Brendan Tang, CS184-aeg</h2>
+
+<br><br>
+
+<div>
+
+<h2 align="middle">Abstract</h2>
+  <p>In this project, we simulated water in a container, allowing the water to fall in and splash when it hits the bottom.  By implementing forces such as gravity and the influences of collisions with particles, and then implementing factors like viscosity, we simulated the movement that actual liquid would make as it fell into a container, and then augmented the project by simulating it with various parameters, such as varying amounts of particles and making it fall in either the center or on a corner of the container.  In order to implement this simulation, we followed some of the dynamics presented in <a href="http://mmacklin.com/pbf_sig_preprint.pdf">Position Based Fluids</a>.  This paper described how to model Incompressibility in the fluid, Tensile Instability, and Viscosity.  We explain what each of these are in the following sections.  </p>
+<h2 align="middle">Pseudocode</h2>
+  <p align="middle">
+    <img src="images/pseudocode.JPG" width="400px" />
+  </p>
+<h2 align="middle">Dynamics</h2>
+  <p>In order to have the particles fall with gravity, we implemented the following equations to set the initial position of the particles at the beginning of the timestep:</p>
+  <div align="middle" lang="latex">
+    v_{i}=v_{i}+\Delta t f_{ext}(x_{i})
+  </div>
+  <div align="middle" lang="latex">
+    x_{i}=x_{i}+\Delta t v_{i}
+  </div>
+
+<h2 align="middle">Incompressibility</h2>
+  <p>We re-implemented the plane collisions and self collisions from project 4.  For plane collisions, we determined when the particle crossed the boundary of the plane, and then moved the particle backwards by a certain amount, measured by the user defined Friction parameter.  </p>
+  <p align="middle">
+    <img src="images/plane_collision.gif" width="400px" />
+  </p>
+  <p>To check whether a particle cross the boundary of the plane, we took the dot product between the point and the normal vector.  If the sign of said dot product switches signs, then we know it crossed the plane.  Here is the result the simulation after adding collision constraints.</p>
+  <p align="middle">
+    <img src="images/only_collision_no_randomness.gif" width="600px" />
+    <figcaption align="middle">Only Collisions</figcaption>
+  </p>
+  <h3 align="middle">Random Initialization</h3>
+  <p>As you can see, the particles bounce vertically after hitting the base plane.  This is because the particles are initialized perfectly above each other, so the only forces push the particles upwards.  After adding gaussian noise proportional to the radius of the particles, we get a simulation like this:
+  <p align="middle">
+    <img src="images/only_collisions.gif" width="600px" />
+    <figcaption align="middle">Collisions and Random Initialization</figcaption>
+  </p>
+<h2 align="middle">Incompressibility</h2>
+  <p>The basic idea of incompressibility is that we would like to ideally keep the density of the fluid constant across all particles.  To do this we first define a density function:</p>
+
+  <div align="middle" lang="latex">
+    \rho_{i}=\sum_{j}m_{j}W(p_{i}-p_{j},h)
+  </div>
+  
+  <p>The density kernel W, can be chosen by the user.  More info about this is presented later in the website.  The next step is to define the density constraint function C</p>
+  <div align="middle" lang="latex">
+    C_{i}(p_{1}\dots p_{n})=\dfrac{\rho_{i}}{\rho_{0}}-1
+  </div>
+  <p>At optimum, the constraint would be 0, however this changes when the particles change position.  We would like to find a value of &Delta;p such that the C goes back down to 0.  In this equation, we approximate &Delta;p as &nabla;C&lambda;</p>
+  <div align="middle" lang="latex">
+    C(p+\Delta p) \approx C(p)+\nabla C^{T}\Delta p=0 
+  </div>
+  <div align="middle" lang="latex">
+    C(p+\Delta p) \approx C(p)+\nabla C^{T} \nabla C \lambda =0
+  </div>
+  <p>Rearranging this equation, we solve for lambda:</p>
+  <div align="middle" lang="latex">
+    \lambda_{i}=-\dfrac{C_{i}(p_{i} \dots p_{n})}{\sum_{p_{k}}|C_{i}|^{2}}
+  </div>
+  <p>To avoid lambda approaching &infin; when there are no neighbors, we add a small user defined parameter &epsilon;, which only affects the simulation when there are very few neighbors, or when the gradient is set to 0.</p>
+  <div align="middle" lang="latex">
+    \lambda_{i}=-\dfrac{C_{i}(p_{i} \dots p_{n})}{\sum_{p_{k}}|C_{i}|^{2} + \epsilon}
+  </div>
+  <p>Our end goal is to find the &Delta;p that would result in C being driven to 0.  Therefore, by combining the following two equations, we found the equation for &Delta;p</p>
+  <div align="center">
+    <table style="width=100%">
+      <tr>
+        <td align="middle">
+          <div align="middle" lang="latex">
+            \Delta p\approx \nabla C \lambda
+          </div>
+        </td>
+        <td align="middle">
+          <div align="middle" lang="latex">
+            \nabla _{p_{k}}C_{i}=\dfrac{1}{\rho_{0}}\sum_{j}\nabla_{p_{k}}W(p_{i}-p_{j},h)
+          </div>
+        </td>
+      </tr>
+      <tr>
+        <td colspan="2" align="middle">
+          <div align="middle" lang="latex">
+            \Delta p=\dfrac{1}{\rho_{0}}\sum_{j}(\lambda_{i}+\lambda_{j})\nabla W(p_{i}-p_{j},h)
+          </div>
+        </td>
+      </tr>
+    </table>
+  </div>
+  <p>However, since change the position for one particle may change the density of the neighboring particles, we run this process multiple times every timestep, in order to more correctly maintain the particle density.  We found that if we increased the number of particles, or increased the initial velocity of the particles, we needed to increase the number of iterations in order to maintain stability.</p>
+  <h3 align="middle">Choosing a Kernel</h3>
+  <p>There were several possible choices for Kernels.  To be a valid Kernel, it had to satisfy two properties:</p>
+  <ul>
+    <li>Zero at infinity.  This prevents particles from interacting with other particles that are very far away.</li>
+    <li>Even and normalized.  This is natural because the corrective force for one particle should be equal and opposite for the other particle.  </li>
+  </ul>
+  <p>We tried two different Kernels, the Poly6 Kernel, and the Spiky Kernel:</p>
+  <div align="center">
+    <table style="width=100%">
+      <tr>
+        <caption>Bold: Kernel, Unbold: Kernel Gradient, Dashed: Laplacian</caption>
+        <td align="middle">
+          <img src="images/Poly6_Kernel.JPG" height="100px"/>
+        </td>
+        <td align="middle">
+          <img src="images/Spiky_Kernel.JPG" height="100px"/>
+        </td>
+      </tr>
+      <tr>
+        <td>
+        <div lang="latex">
+          W_{poly6}=\begin{cases}
+            \dfrac{315}{64 \pi h^{9}}(h^{2}-r^{2})^{3} & 0 \leq r \leq h\\
+            0 & o.w.
+          \end{cases}
+        </div>
+        </td>
+        <td>
+        <div lang="latex">
+          W_{spiky}=\begin{cases}
+            \dfrac{15}{\pi h^{6}}(h-r)^{3} & 0 \leq r \leq h\\
+            0 & o.w.
+          \end{cases}
+        </div>
+        </td>
+      </tr>
+    </table>
+  </div>
+  <p>Each Kernel has its advantages and disadvantages.  The advantage of the Poly6 Kernel is that it has an r^2 term, so  is easier to calculate.  However, we can see that the gradient of the Poly6 Kernel is 0 at r=0.  This hinders the Poly6 Kernel from pushing away particles which are very close to each other.  The Spiky Kernel does not suffer from this.  This combined with the fact that the Spiky Kernel is simpler, led us to choosing the Spiky Kernel for our animation.</p>
+  <p>After adding the Incompressibility constraints.  With gravity only, single particles will splash upwards.  With the density constraints, the particles will stay in groups, similar to real water.</p>
+
+
+  <p align="middle">
+    <img src="images/incompressibility.gif" width="600px" />
+    <figcaption align="middle">Incompressibility</figcaption>
+  </p>
+
+<h2 align="middle">Tensile Instability</h2>
+  <p>In the previous gif, we can see that a few particles will fly up inexpectedly.  If particles have too few neighbors, the incompressibility constraint will cause instability and erratic behavior.  Therefore we add the Tensile Instability term, which minimizes the amount of effect the imcompressibility term when the particle has few neighbors.  This prevents particles from flying upwards.  Additionally, when the cube falls, we can see that the cube crunches up less around the corners, because this term reduces the effect of the density constraint, since there are few neighbors around the corners.  </p>
+
+  <div align="middle" lang="latex">
+    s_{corr}=-k \left(\dfrac{W(p_{i}-p_{j},h)}{W(\Delta q,h)}\right)^{n}
+  </div>
+  <div align="middle" lang="latex">
+    \Delta p=\dfrac{1}{\rho_{0}}\sum_{j}(\lambda_{i}+\lambda_{j}+s_{corr})\nabla W(p_{i}-p_{j},h)
+  </div>
+  <p align="middle">
+    <img src="images/with_s_corr.gif" width="600px" />
+    <figcaption align="middle">S correlation</figcaption>
+  </p>
+<h2 align="middle">Viscosity</h2>
+  <p>In order to make the motion more natural, we added viscosity.  Viscosity makes slow particles travelling near fast particles move faster, and makes fast moving particles travelling near slow particles move slower.  </p>
+  <div align="middle" lang="latex">
+    v_{i}^{new}=v_{i}+c\sum_{j}v_{ij}W(p_{i}-p_{j},h)
+  </div>
+
+  <div align="center">
+    <table style="width=100%">
+      <tr>
+        <td align="middle">
+          <img src="images/with_viscosity.gif" width="450px" />
+        </td>
+        <td align="middle">
+          <img src="images/viscosity-12-15-12.gif" width="450px" />
+        </td>
+      </tr>
+    </table>
+  </div>
+
+<h2 align="middle">End Results</h2>
+  <p>We ran the simulation with 10,000 particles.  We found that adding more particles required more iterations to prevent instability.  This aligned with our intuition, because we believe that there are more possible forces acting on each particle.  </p>
+  <div align="center">
+    <table style="width=100%">
+      <tr>
+        <td align="middle">
+          <img src="images/10000.gif" width="450px"/>
+          <figcaption>3 Iterations, no Viscosity</figcaption>
+        </td>
+        <td align="middle">
+          <img src="images/10000_viscosity_5_iterations.gif" width="450px"/>
+          <figcaption>5 Iterations, with Viscosity</figcaption>
+        </td>
+      </tr>
+      <tr>
+        <td align="middle">
+          <img src="images/10000_no_viscosity_5_iterations.gif" width="450px"/>
+          <figcaption>5 Iterations, no Viscosity</figcaption>
+        </td>
+        <td align="middle">
+          <img src="images/two_squares.gif" width="450px"/>
+          <figcaption>Two Boxes of Water</figcaption>
+        </td>
+      </tr>
+    </table>
+  </div>
+</body>
+</html>
